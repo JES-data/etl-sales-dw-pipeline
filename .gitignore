@@ -1,0 +1,24 @@
+﻿# Entornos virtuales y Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.class
+*.egg-info/
+
+# Variables de entorno y secretos
+.env
+*.env
+!.env.example
+
+# Datos generados, logs y volúmenes locales
+data/raw/*.csv
+data/logs/*.csv
+*.bak
+*.mdf
+*.ldf
+
+# Editores y sistema
+.vscode/
+.idea/
+Thumbs.db
