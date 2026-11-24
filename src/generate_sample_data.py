@@ -1,32 +1,73 @@
-﻿from pathlib import Path
+﻿import random
+from datetime import datetime, timedelta
+from pathlib import Path
 import pandas as pd
 
-raw_dir = Path("data/raw")
-raw_dir.mkdir(parents=True, exist_ok=True)
+BASE_DIR = Path(__file__).resolve().parent.parent
+RAW_DIR = BASE_DIR / "data" / "raw"
+RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-clientes = pd.DataFrame([
-    {"cliente_id": "CLI-001", "nombre_cliente": "  Distribuidora Sur SA ", "segmento": "Mayorista", "ciudad": "Buenos Aires"},
-    {"cliente_id": "CLI-002", "nombre_cliente": "Comercial Norte", "segmento": "Minorista", "ciudad": "Córdoba"},
-    {"cliente_id": "CLI-003", "nombre_cliente": "TecnoAndes SRL", "segmento": "Corporativo", "ciudad": "Mendoza"},
-    {"cliente_id": "CLI-004", "nombre_cliente": "  Mercado del Plata  ", "segmento": "Minorista", "ciudad": "La Plata"},
-    {"cliente_id": "CLI-002", "nombre_cliente": "Comercial Norte", "segmento": "Minorista", "ciudad": "Córdoba"},
-])
 
-ventas = pd.DataFrame([
-    # Casos válidos (distintos formatos y precios)
-    {"venta_id": "VTA-1001", "cliente_id": "CLI-001", "producto_sku": "PRD-A1", "nombre_producto": "Notebook Pro 14", "categoria": "Tecnología", "fecha": "2026-10-05", "cantidad": "2", "precio_unitario": ".00"},
-    {"venta_id": "VTA-1002", "cliente_id": "CLI-002", "producto_sku": "PRD-B2", "nombre_producto": "Monitor 24 IPS", "categoria": "Tecnología", "fecha": "12/10/2026", "cantidad": "3", "precio_unitario": "310.50"},
-    {"venta_id": "VTA-1005", "cliente_id": "CLI-004", "producto_sku": "PRD-D4", "nombre_producto": "Teclado Mecánico", "categoria": "Accesorios", "fecha": "2026-11-02", "cantidad": "5", "precio_unitario": ",200.50"},
-    {"venta_id": "VTA-1006", "cliente_id": "CLI-003", "producto_sku": "PRD-A1", "nombre_producto": "Notebook Pro 14", "categoria": "Tecnología", "fecha": "15/11/2026", "cantidad": "1", "precio_unitario": "1250.00"},
-    # Duplicado exacto de VTA-1001
-    {"venta_id": "VTA-1001", "cliente_id": "CLI-001", "producto_sku": "PRD-A1", "nombre_producto": "Notebook Pro 14", "categoria": "Tecnología", "fecha": "2026-10-05", "cantidad": "2", "precio_unitario": ".00"},
-    # Casos inválidos (deben ir a rejected_rows.csv)
-    {"venta_id": "VTA-1003", "cliente_id": "CLI-003", "producto_sku": "PRD-C3", "nombre_producto": "Silla Ergonómica", "categoria": "Oficina", "fecha": "2026-10-18", "cantidad": "-1", "precio_unitario": "420.00"},
-    {"venta_id": "VTA-1004", "cliente_id": "CLI-001", "producto_sku": "PRD-A1", "nombre_producto": "Notebook Pro 14", "categoria": "Tecnología", "fecha": "fecha_rota", "cantidad": "1", "precio_unitario": "1250.00"},
-    {"venta_id": "VTA-1007", "cliente_id": "CLI-999", "producto_sku": "PRD-B2", "nombre_producto": "Monitor 24 IPS", "categoria": "Tecnología", "fecha": "2026-11-10", "cantidad": "2", "precio_unitario": "310.50"},
-    {"venta_id": "VTA-1008", "cliente_id": "CLI-002", "producto_sku": "PRD-E5", "nombre_producto": "Mouse Inalámbrico", "categoria": "Accesorios", "fecha": "2026-11-12", "cantidad": "0", "precio_unitario": "45.00"},
-])
+def generate_data(num_clientes: int = 15, num_ventas: int = 100, seed: int = 42):
+    rng = random.Random(seed)
 
-clientes.to_csv(raw_dir / "clientes_raw.csv", index=False)
-ventas.to_csv(raw_dir / "ventas_raw.csv", index=False)
-print("Set ampliado de CSVs generado en data/raw/")
+    segmentos = ["Minorista", "Mayorista", "Corporativo"]
+    ciudades = ["CABA", "Rosario", "Cordoba", "Mendoza", "La Plata"]
+    productos = [
+        ("SKU-001", "Notebook Pro 14", "Electronica", 1200.00),
+        ("SKU-002", "Monitor 27 IPS", "Electronica", 350.50),
+        ("SKU-003", "Teclado Mecanico", "Accesorios", 95.00),
+        ("SKU-004", "Mouse Inalambrico", "Accesorios", 45.00),
+        ("SKU-005", "Silla Ergonomica", "Oficina", 420.00),
+    ]
+
+    clientes = []
+    for i in range(1, num_clientes + 1):
+        clientes.append({
+            "cliente_id": f"CLI-{i:03d}",
+            "nombre_cliente": f"Cliente {i:03d}",
+            "segmento": rng.choice(segmentos),
+            "ciudad": rng.choice(ciudades),
+        })
+    clientes_df = pd.DataFrame(clientes)
+    clientes_df.to_csv(RAW_DIR / "clientes_raw.csv", index=False)
+
+    fecha_base = datetime(2026, 1, 1)
+    ventas = []
+    for i in range(1, num_ventas + 1):
+        cli_id = rng.choice(clientes_df["cliente_id"].tolist())
+        sku, prod_nombre, categoria, precio = rng.choice(productos)
+        fecha_str = (fecha_base + timedelta(days=rng.randint(0, 300))).strftime("%Y-%m-%d")
+        cantidad = rng.randint(1, 10)
+        precio_str = f"{precio:.2f}"
+        venta_id = f"VTA-{i:04d}"
+
+        # Inyectar ~10% de casos inválidos para probar rejected_rows.csv y motivo_rechazo
+        anomalia = rng.random()
+        if anomalia < 0.02:
+            cantidad = 0
+        elif anomalia < 0.04:
+            cantidad = -2
+        elif anomalia < 0.06:
+            fecha_str = "fecha_rota"
+        elif anomalia < 0.08:
+            precio_str = ".00"
+        elif anomalia < 0.10 and i > 2:
+            venta_id = f"VTA-{i - 1:04d}"  # Duplicado intencional
+
+        ventas.append({
+            "venta_id": venta_id,
+            "cliente_id": cli_id,
+            "producto_sku": sku,
+            "nombre_producto": prod_nombre,
+            "categoria": categoria,
+            "fecha": fecha_str,
+            "cantidad": cantidad,
+            "precio_unitario": precio_str,
+        })
+
+    pd.DataFrame(ventas).to_csv(RAW_DIR / "ventas_raw.csv", index=False)
+
+
+if __name__ == "__main__":
+    generate_data(num_clientes=15, num_ventas=100)
