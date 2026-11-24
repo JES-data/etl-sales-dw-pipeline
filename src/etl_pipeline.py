@@ -77,24 +77,44 @@ def run_etl():
 
     ventas_dedup = ventas_df.drop_duplicates(subset=["venta_id"], keep="first").copy()
 
-    valid_mask = (
-        ventas_dedup["venta_id"].notna()
-        & ventas_dedup["cliente_id"].isin(clientes_clean["cliente_id"])
-        & ventas_dedup["producto_sku"].notna()
-        & ventas_dedup["fecha_dt"].notna()
-        & ventas_dedup["cantidad_num"].notna()
-        & (ventas_dedup["cantidad_num"] > 0)
-        & ventas_dedup["precio_num"].notna()
-        & (ventas_dedup["precio_num"] > 0)
-    )
+# Marcar venta_id duplicados antes de deduplicar para poder registrar el motivo
+    dup_mask = ventas_df["venta_id"].notna() & ventas_df.duplicated(subset=["venta_id"], keep="first")
+    ventas_eval = ventas_df.copy()
 
-    rejected_df = ventas_dedup[~valid_mask].copy()
+    cond_venta_id_nulo = ventas_eval["venta_id"].isna() | (ventas_eval["venta_id"] == "")
+    cond_cliente_invalido = ~ventas_eval["cliente_id"].isin(clientes_clean["cliente_id"])
+    cond_producto_nulo = ventas_eval["producto_sku"].isna() | (ventas_eval["producto_sku"] == "")
+    cond_fecha_invalida = ventas_eval["fecha_dt"].isna()
+    cond_cantidad_invalida = ventas_eval["cantidad_num"].isna() | (ventas_eval["cantidad_num"] <= 0)
+    cond_precio_invalido = ventas_eval["precio_num"].isna() | (ventas_eval["precio_num"] <= 0)
+
+    def build_motivo(idx):
+        motivos = []
+        if dup_mask.loc[idx]:
+            motivos.append("venta_id duplicado")
+        if cond_venta_id_nulo.loc[idx]:
+            motivos.append("venta_id faltante")
+        if cond_cliente_invalido.loc[idx]:
+            motivos.append("cliente_id inexistente o faltante")
+        if cond_producto_nulo.loc[idx]:
+            motivos.append("producto_sku faltante")
+        if cond_fecha_invalida.loc[idx]:
+            motivos.append("fecha invalida")
+        if cond_cantidad_invalida.loc[idx]:
+            motivos.append("cantidad <= 0 o no numerica")
+        if cond_precio_invalido.loc[idx]:
+            motivos.append("precio_unitario <= 0 o no numerico")
+        return " | ".join(motivos)
+
+    ventas_eval["motivo_rechazo"] = [build_motivo(i) for i in ventas_eval.index]
+
+    rejected_df = ventas_eval[ventas_eval["motivo_rechazo"] != ""].copy()
     if not rejected_df.empty:
         rejected_df.drop(columns=["precio_num", "cantidad_num", "fecha_dt"], errors="ignore").to_csv(
-            LOG_DIR / "rejected_rows.csv", index=False
+            LOG_DIR / "rejected_rows.csv", index=False, encoding="utf-8-sig"
         )
 
-    valid_df = ventas_dedup[valid_mask].copy()
+    valid_df = ventas_eval[ventas_eval["motivo_rechazo"] == ""].copy()
     valid_df["cantidad_int"] = valid_df["cantidad_num"].astype(int)
     valid_df["total_venta"] = (valid_df["cantidad_int"] * valid_df["precio_num"]).round(2)
     valid_df["fecha_sk"] = valid_df["fecha_dt"].dt.strftime("%Y%m%d").astype(int)
